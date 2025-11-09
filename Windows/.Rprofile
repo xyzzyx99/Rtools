@@ -3,7 +3,7 @@ options(prompt = paste0(getwd(), " > "))
 setwd <- function(dir) {
   base::setwd(dir)
   options(prompt = paste0(getwd(), " > "))
-  cat("���� Working directory changed to:", getwd(), "\n")
+  cat("📂 Working directory changed to:", getwd(), "\n")
 }
 ls
 
@@ -59,27 +59,47 @@ show_files_df <- function(path = getwd()) {
     Name     = basename(files),
     Size_KB  = round(info$size / 1024, 1),
     Modified = info$mtime,
-    Type     = ifelse(info$isdir, "���� Directory", "���� File"),
+    Type     = ifelse(info$isdir, "📁 Directory", "📄 File"),
     stringsAsFactors = FALSE
   )
 }
 
 # ------- pretty printer: Name LAST; quote only if printed name has spaces -------
-show_files_table <- function(path = getwd(), term_width = NULL, use_ascii_type = NA) {
+show_files_table <- function(path = getwd(),
+                             term_width = NULL,
+                             use_ascii_type = NA,
+                             show = c("both", "files", "dirs")) {
+  show <- match.arg(show)
   df <- show_files_df(path)
   tw <- if (is.null(term_width)) get_console_width() else as.integer(term_width)
   
+  # derive robust directory flag
+  is_dir <- if ("IsDir" %in% names(df)) {
+    df$IsDir
+  } else if ("Type" %in% names(df)) {
+    grepl("Directory|\\[DIR\\]", df$Type)
+  } else {
+    rep(FALSE, nrow(df))
+  }
+  
+  # apply filter
+  keep <- switch(show,
+                 both  = rep(TRUE, nrow(df)),
+                 files = !is_dir,
+                 dirs  =  is_dir)
+  df <- df[keep, , drop = FALSE]
+  is_dir <- is_dir[keep]
+  
   # --- detect whether to fall back to ASCII for Type labels ---
-  # If user didn't force it, auto-decide: no UTF-8 -> ASCII
   if (is.na(use_ascii_type)) {
     use_ascii_type <- !isTRUE(l10n_info()[["UTF-8"]])
   }
   
-  # choose icons or ASCII
+  # choose icons or ASCII from is_dir (robust)
   type_chr <- if (isTRUE(use_ascii_type)) {
-    ifelse(df$Type == "���� Directory", "[DIR]", "[FILE]")
+    ifelse(is_dir, "[DIR]", "[FILE]")
   } else {
-    df$Type
+    ifelse(is_dir, "📁 Directory", "📄 File")
   }
   
   # fixed columns (pre-format)
@@ -97,8 +117,7 @@ show_files_table <- function(path = getwd(), term_width = NULL, use_ascii_type =
   gap1 <- 2                  # after index
   extra_after_size <- 3      # after Size_KB
   gap3 <- 1                  # between Modified and Type
-  # crucial: make the gap after Type larger in ASCII mode
-  gap4 <- if (isTRUE(use_ascii_type)) 2 else 1
+  gap4 <- if (isTRUE(use_ascii_type)) 2 else 1  # larger gap in ASCII mode
   
   # fixed width BEFORE name starts
   fixed_before_name <- w_idx + gap1 + w_size + extra_after_size + w_mod + gap3 + w_type + gap4
@@ -148,7 +167,9 @@ show_files_table <- function(path = getwd(), term_width = NULL, use_ascii_type =
     
     # remaining width for Name if unquoted
     rem_unquoted <- max(0, tw - (w_nchar(left_fixed) + gap4))
-    cand_unquoted <- if (rem_unquoted > 0) trunc_name_nopad(df$Name[i], min(rem_unquoted, w_name_trunc)) else ""
+    cand_unquoted <- if (rem_unquoted > 0)
+      trunc_name_nopad(df$Name[i], min(rem_unquoted, w_name_trunc))
+    else ""
     needs_quote <- grepl("\\s", cand_unquoted)
     
     if (!needs_quote) {
@@ -156,12 +177,13 @@ show_files_table <- function(path = getwd(), term_width = NULL, use_ascii_type =
     } else {
       # quoted: opening quote one col earlier; reserve 2 for quotes
       rem_quoted_text <- max(0, tw - (w_nchar(left_fixed) + (gap4 - 1) + 2))
-      inner <- if (rem_quoted_text > 0) trunc_name_nopad(df$Name[i], min(rem_quoted_text, w_name_trunc)) else ""
+      inner <- if (rem_quoted_text > 0)
+        trunc_name_nopad(df$Name[i], min(rem_quoted_text, w_name_trunc))
+      else ""
       name_out <- paste0("'", inner, "'")
       line <- paste0(left_fixed, strrep(" ", gap4 - 1), name_out)
     }
     
-    # final guard: trim hard at console width if needed
     if (w_nchar(line) > tw) line <- substr(line, 1, tw)
     cat(line, "\n")
   }
@@ -181,5 +203,30 @@ makeActiveBinding(
   function() { show_files_table(); invisible(NULL) },
   .GlobalEnv
 )
+
+if (exists("llf", envir = .GlobalEnv, inherits = FALSE)) {
+  if (bindingIsLocked("llf", .GlobalEnv)) unlockBinding("llf", .GlobalEnv)
+  rm("llf", envir = .GlobalEnv)
+}
+
+# now create the active binding
+makeActiveBinding(
+  "llf",
+  function() { show_files_table(show = 'files'); invisible(NULL) },
+  .GlobalEnv
+)
+
+if (exists("lld", envir = .GlobalEnv, inherits = FALSE)) {
+  if (bindingIsLocked("llf", .GlobalEnv)) unlockBinding("lld", .GlobalEnv)
+  rm("lld", envir = .GlobalEnv)
+}
+
+# now create the active binding
+makeActiveBinding(
+  "lld",
+  function() { show_files_table(show = 'dirs'); invisible(NULL) },
+  .GlobalEnv
+)
+
 # With brackets, call the plain function:
 # show_files_table()  # prints once
