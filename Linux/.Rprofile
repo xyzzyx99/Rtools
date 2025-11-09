@@ -68,49 +68,55 @@ show_files_df <- function(path = getwd()) {
   )
 }
 
-# ------- pretty printer: Name LAST; quote only if printed name has spaces -------
+# ---------- DF builder (Linux-safe; filter early; returns IsDir) ----------
+show_files_df <- function(path = getwd(), show = c("both", "files", "dirs")) {
+  show <- match.arg(show)
 
+  files <- list.files(path, all.files = TRUE, full.names = TRUE, no.. = TRUE)
+  info  <- file.info(files)
+  ord   <- order(info$mtime)               # oldest -> newest (ls -ltr style)
+  files <- files[ord]; info <- info[ord, , drop = FALSE]
+
+  is_dir <- info$isdir
+  keep <- switch(show,
+                 both  = rep(TRUE, length(is_dir)),
+                 files = !is_dir,
+                 dirs  =  is_dir)
+
+  files <- files[keep]
+  info  <- info [keep, , drop = FALSE]
+  is_dir <- is_dir[keep]
+
+  data.frame(
+    Name     = basename(files),
+    Size_KB  = round(info$size / 1024, 1),
+    Modified = info$mtime,
+    IsDir    = is_dir,
+    stringsAsFactors = FALSE
+  )
+}
+
+# ---------- pretty printer (Linux-safe; Name last; quote-smart; width-safe) ----------
 show_files_table <- function(path = getwd(),
                              term_width = NULL,
                              use_ascii_type = NA,
                              show = c("both", "files", "dirs")) {
   show <- match.arg(show)
-
-  df <- show_files_df(path)
+  df <- show_files_df(path, show = show)
   tw <- if (is.null(term_width)) get_console_width() else as.integer(term_width)
 
-  # Always leave a column so we never hit the right edge exactly
+  # leave a margin so a line never hits the right edge (avoids phantom blank line)
   safety_pad <- 1L
 
-  # OS / encoding heuristics
+  # Linux / encoding heuristics
   is_linux <- identical(tolower(Sys.info()[["sysname"]]), "linux")
   if (is.na(use_ascii_type)) use_ascii_type <- is_linux || !isTRUE(l10n_info()[["UTF-8"]])
 
-  # Robust directory flag (works whether or not IsDir exists)
-  is_dir <- if ("IsDir" %in% names(df)) {
-    df$IsDir
-  } else if ("Type" %in% names(df)) {
-    grepl("Directory|\\[DIR\\]", df$Type)
-  } else {
-    # last-resort: re-check via file.info on the listed entries
-    files <- file.path(path, df$Name)
-    info  <- file.info(files)
-    info$isdir
-  }
-
-  # Apply filter
-  keep <- switch(show,
-                 both  = rep(TRUE, length(is_dir)),
-                 files = !is_dir,
-                 dirs  =  is_dir)
-  df     <- df[keep, , drop = FALSE]
-  is_dir <- is_dir[keep]
-
-  # Type labels from is_dir (no leading spaces)
+  # Type labels from IsDir (robust; no leading spaces)
   type_chr <- if (isTRUE(use_ascii_type)) {
-    ifelse(is_dir, "[DIR]", "[FILE]")
+    ifelse(df$IsDir, "[DIR]", "[FILE]")
   } else {
-    ifelse(is_dir, "📁 Directory", "📄 File")
+    ifelse(df$IsDir, "📁 Directory", "📄 File")
   }
 
   # Fixed columns
@@ -124,7 +130,7 @@ show_files_table <- function(path = getwd(),
   w_mod  <- max(w_nchar(mod_chr),  w_nchar("Modified"))
   w_type <- max(w_nchar(type_chr), w_nchar("Type"))
 
-  # Spacing (2 spaces after Type on Linux helps clarity)
+  # Spacing (use 2 spaces after Type on Linux for clarity)
   gap1 <- 2
   extra_after_size <- 3
   gap3 <- 1
@@ -133,7 +139,7 @@ show_files_table <- function(path = getwd(),
   # Fixed width BEFORE unquoted Name starts
   fixed_before_name <- w_idx + gap1 + w_size + extra_after_size + w_mod + gap3 + w_type + gap4
 
-  # Name truncation policy (no padding on names)
+  # Name truncation (no padding)
   NAME_MIN <- 10
   NAME_MAX <- 60
   name_nat <- if (nrow(df)) max(w_nchar(df$Name), w_nchar("Name")) else w_nchar("Name")
@@ -144,7 +150,7 @@ show_files_table <- function(path = getwd(),
     max(NAME_MIN, min(NAME_MAX, max_fit))
   }
 
-  # Header (Name shifted exactly by gap4)
+  # Header (align Name with start column; no extra shift)
   header <- paste0(
     format("",        width = w_idx,  justify = "right"),
     strrep(" ", gap1),
@@ -153,7 +159,7 @@ show_files_table <- function(path = getwd(),
     format("Modified",width = w_mod,  justify = "left"),
     strrep(" ", gap3),
     format("Type",    width = w_type, justify = "left"),
-    strrep(" ", gap4),  # shift by gap4
+    strrep(" ", gap4),
     "Name"
   )
   cat(header, "\n")
@@ -176,7 +182,7 @@ show_files_table <- function(path = getwd(),
       type_fmt
     )
 
-    # Unquoted candidate: leave safety_pad at right edge
+    # Remaining width for Name (unquoted), leaving safety_pad
     rem_unquoted <- max(0, tw - safety_pad - (w_nchar(left_fixed) + gap4))
     cand_unquoted <- if (rem_unquoted > 0)
       trunc_name_nopad(df$Name[i], min(rem_unquoted, w_name_trunc))
@@ -205,42 +211,11 @@ show_files_table <- function(path = getwd(),
   invisible(df)
 }
 
-# 3) Active binding: typing `show_files` prints once
-if (exists("lls", envir = .GlobalEnv, inherits = FALSE)) {
-  if (bindingIsLocked("lls", .GlobalEnv)) unlockBinding("lls", .GlobalEnv)
-  rm("lls", envir = .GlobalEnv)
-}
-
 # now create the active binding
 makeActiveBinding(
   "lls",
   function() { show_files_table(); invisible(NULL) },
   .GlobalEnv
 )
-
-if (exists("llf", envir = .GlobalEnv, inherits = FALSE)) {
-  if (bindingIsLocked("llf", .GlobalEnv)) unlockBinding("llf", .GlobalEnv)
-  rm("llf", envir = .GlobalEnv)
-}
-
-# now create the active binding
-makeActiveBinding(
-  "llf",
-  function() { show_files_table(show = 'files'); invisible(NULL) },
-  .GlobalEnv
-)
-
-if (exists("lld", envir = .GlobalEnv, inherits = FALSE)) {
-  if (bindingIsLocked("llf", .GlobalEnv)) unlockBinding("lld", .GlobalEnv)
-  rm("lld", envir = .GlobalEnv)
-}
-
-# now create the active binding
-makeActiveBinding(
-  "lld",
-  function() { show_files_table(show = 'dirs'); invisible(NULL) },
-  .GlobalEnv
-)
-
 # With brackets, call the plain function:
 # show_files_table()  # prints once
