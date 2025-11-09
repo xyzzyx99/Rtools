@@ -70,7 +70,12 @@ show_files_df <- function(path = getwd()) {
 
 # ------- pretty printer: Name LAST; quote only if printed name has spaces -------
 
-show_files_table <- function(path = getwd(), term_width = NULL, use_ascii_type = NA) {
+show_files_table <- function(path = getwd(),
+                             term_width = NULL,
+                             use_ascii_type = NA,
+                             show = c("both", "files", "dirs")) {
+  show <- match.arg(show)
+
   df <- show_files_df(path)
   tw <- if (is.null(term_width)) get_console_width() else as.integer(term_width)
 
@@ -81,11 +86,31 @@ show_files_table <- function(path = getwd(), term_width = NULL, use_ascii_type =
   is_linux <- identical(tolower(Sys.info()[["sysname"]]), "linux")
   if (is.na(use_ascii_type)) use_ascii_type <- is_linux || !isTRUE(l10n_info()[["UTF-8"]])
 
-  # Type labels from IsDir (robust)
-  type_chr <- if (isTRUE(use_ascii_type)) {
-    ifelse(df$IsDir, "[DIR]", "[FILE]")
+  # Robust directory flag (works whether or not IsDir exists)
+  is_dir <- if ("IsDir" %in% names(df)) {
+    df$IsDir
+  } else if ("Type" %in% names(df)) {
+    grepl("Directory|\\[DIR\\]", df$Type)
   } else {
-    ifelse(df$IsDir, " Directory", " File")
+    # last-resort: re-check via file.info on the listed entries
+    files <- file.path(path, df$Name)
+    info  <- file.info(files)
+    info$isdir
+  }
+
+  # Apply filter
+  keep <- switch(show,
+                 both  = rep(TRUE, length(is_dir)),
+                 files = !is_dir,
+                 dirs  =  is_dir)
+  df     <- df[keep, , drop = FALSE]
+  is_dir <- is_dir[keep]
+
+  # Type labels from is_dir (no leading spaces)
+  type_chr <- if (isTRUE(use_ascii_type)) {
+    ifelse(is_dir, "[DIR]", "[FILE]")
+  } else {
+    ifelse(is_dir, "📁 Directory", "📄 File")
   }
 
   # Fixed columns
@@ -111,7 +136,7 @@ show_files_table <- function(path = getwd(), term_width = NULL, use_ascii_type =
   # Name truncation policy (no padding on names)
   NAME_MIN <- 10
   NAME_MAX <- 60
-  name_nat <- max(w_nchar(df$Name), w_nchar("Name"))
+  name_nat <- if (nrow(df)) max(w_nchar(df$Name), w_nchar("Name")) else w_nchar("Name")
   max_fit  <- max(5, tw - safety_pad - fixed_before_name)
   w_name_trunc <- if (name_nat <= max_fit) {
     min(max(name_nat, NAME_MIN), NAME_MAX)
@@ -119,17 +144,17 @@ show_files_table <- function(path = getwd(), term_width = NULL, use_ascii_type =
     max(NAME_MIN, min(NAME_MAX, max_fit))
   }
 
-  # Header (shift "Name" 1 char right)
+  # Header (Name shifted exactly by gap4)
   header <- paste0(
-  format("",        width = w_idx,  justify = "right"),
-  strrep(" ", gap1),
-  format("Size_KB", width = w_size, justify = "right"),
-  strrep(" ", extra_after_size),
-  format("Modified",width = w_mod,  justify = "left"),
-  strrep(" ", gap3),
-  format("Type",    width = w_type, justify = "left"),
-  strrep(" ", gap4),   #  shift only by gap4 (1 less space)
-  "Name"
+    format("",        width = w_idx,  justify = "right"),
+    strrep(" ", gap1),
+    format("Size_KB", width = w_size, justify = "right"),
+    strrep(" ", extra_after_size),
+    format("Modified",width = w_mod,  justify = "left"),
+    strrep(" ", gap3),
+    format("Type",    width = w_type, justify = "left"),
+    strrep(" ", gap4),  # shift by gap4
+    "Name"
   )
   cat(header, "\n")
   cat(strrep("-", min(tw, nchar(header))), "\n")
@@ -157,27 +182,33 @@ show_files_table <- function(path = getwd(), term_width = NULL, use_ascii_type =
       trunc_name_nopad(df$Name[i], min(rem_unquoted, w_name_trunc))
     else ""
 
+    # Quote only if the printed (possibly truncated) name still contains spaces
     needs_quote <- grepl("\\s", cand_unquoted)
 
     if (!needs_quote) {
       line <- paste0(left_fixed, strrep(" ", gap4), cand_unquoted)
     } else {
       # Quoted: opening quote one col earlier; reserve 2 quotes + safety_pad
-      pre_gap <- gap4 - 1
+      pre_gap   <- gap4 - 1
       rem_inner <- max(0, tw - safety_pad - ((w_nchar(left_fixed) + pre_gap) + 2))
-      inner <- if (rem_inner > 0)
+      inner     <- if (rem_inner > 0)
         trunc_name_nopad(df$Name[i], min(rem_inner, w_name_trunc))
       else ""
       name_out <- paste0("'", inner, "'")
       line <- paste0(left_fixed, strrep(" ", pre_gap), name_out)
     }
 
-    # Final guard: hard-trim if anything slipped over (shouldn’t now)
-    if (w_nchar(line) > tw) line <- substr(line, 1, tw)
+    if (w_nchar(line) > tw) line <- substr(line, 1, tw)  # hard cap
     cat(line, "\n")
   }
 
   invisible(df)
+}
+
+# 3) Active binding: typing `show_files` prints once
+if (exists("lls", envir = .GlobalEnv, inherits = FALSE)) {
+  if (bindingIsLocked("lls", .GlobalEnv)) unlockBinding("lls", .GlobalEnv)
+  rm("lls", envir = .GlobalEnv)
 }
 
 # now create the active binding
@@ -186,5 +217,30 @@ makeActiveBinding(
   function() { show_files_table(); invisible(NULL) },
   .GlobalEnv
 )
+
+if (exists("llf", envir = .GlobalEnv, inherits = FALSE)) {
+  if (bindingIsLocked("llf", .GlobalEnv)) unlockBinding("llf", .GlobalEnv)
+  rm("llf", envir = .GlobalEnv)
+}
+
+# now create the active binding
+makeActiveBinding(
+  "llf",
+  function() { show_files_table(show = 'files'); invisible(NULL) },
+  .GlobalEnv
+)
+
+if (exists("lld", envir = .GlobalEnv, inherits = FALSE)) {
+  if (bindingIsLocked("llf", .GlobalEnv)) unlockBinding("lld", .GlobalEnv)
+  rm("lld", envir = .GlobalEnv)
+}
+
+# now create the active binding
+makeActiveBinding(
+  "lld",
+  function() { show_files_table(show = 'dirs'); invisible(NULL) },
+  .GlobalEnv
+)
+
 # With brackets, call the plain function:
 # show_files_table()  # prints once
