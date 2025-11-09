@@ -1,11 +1,31 @@
-options(prompt = paste0("R:~", sub(paste0(".*", Sys.getenv("USER")), "", getwd()), " > "))
+# helper: build the prompt path using username-splitting
+.make_prompt_path <- function(wd = getwd()) {
+  user <- Sys.getenv(ifelse(.Platform$OS.type == "windows", "USERNAME", "USER"))
+  # remove everything up to and including the first occurrence of <user>
+  right <- sub(paste0(".*", user), "", wd, perl = TRUE)
 
+  if (identical(right, wd)) {
+    # username wasn't found → not inside ~, show absolute path
+    wd
+  } else {
+    # we're “inside ~”: clean leading separators on the right side
+    right <- sub("^[\\\\/]+", "", right)
+    if (nchar(right) == 0) {
+      "~"
+    } else {
+      paste0("~/", right)
+    }
+  }
+}
+
+# set initial prompt
+options(prompt = paste0("R:", .make_prompt_path(getwd()), " > "))
+
+# override setwd: update prompt after changing directory
 setwd <- function(dir) {
   base::setwd(dir)
-  # compute relative path after $USER
-  rel_path <- sub(paste0(".*", Sys.getenv("USER")), "", getwd())
-  # build prompt: R:~/... >
-  options(prompt = paste0("R:~", rel_path, " > "))
+  prompt_path <- .make_prompt_path(getwd())
+  options(prompt = paste0("R:", prompt_path, " > "))
   cat("Working directory changed to:", getwd(), "\n")
 }
 
