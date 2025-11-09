@@ -123,15 +123,16 @@ show_files_table <- function(path = getwd(),
     max(NAME_MIN, min(NAME_MAX, max_fit))
   }
   
+  # ----- Header: move "Name" 1 char to the RIGHT -----
   header <- paste0(
     format("",        width = w_idx,  justify = "right"),
     strrep(" ", gap1),
     format("Size_KB", width = w_size, justify = "right"),
     strrep(" ", extra_after_size),
-    format("Modified",width = w_mod,  justify = "left"),
+    format("Modified", width = w_mod,  justify = "left"),
     strrep(" ", gap3),
-    format("Type",    width = w_type, justify = "left"),
-    strrep(" ", gap4),  # Name header aligned (no extra shift)
+    format("Type", width = w_type, justify = "left"),
+    strrep(" ", gap4 + 1),  # <-- one extra space added here
     "Name"
   )
   cat(header, "\n")
