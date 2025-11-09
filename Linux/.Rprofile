@@ -1,10 +1,14 @@
-options(prompt = paste0(getwd(), " > "))
+options(prompt = paste0("R:~", sub(paste0(".*", Sys.getenv("USER")), "", getwd()), " > "))
 
 setwd <- function(dir) {
   base::setwd(dir)
-  options(prompt = paste0(getwd(), " > "))
-  cat("📂 Working directory changed to:", getwd(), "\n")
+  # compute relative path after $USER
+  rel_path <- sub(paste0(".*", Sys.getenv("USER")), "", getwd())
+  # build prompt: R:~/... >
+  options(prompt = paste0("R:~", rel_path, " > "))
+  cat("Working directory changed to:", getwd(), "\n")
 }
+
 ls
 
 # ------- helpers -------
