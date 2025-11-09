@@ -211,11 +211,42 @@ show_files_table <- function(path = getwd(),
   invisible(df)
 }
 
+# 3) Active binding: typing `show_files` prints once
+if (exists("lls", envir = .GlobalEnv, inherits = FALSE)) {
+  if (bindingIsLocked("lls", .GlobalEnv)) unlockBinding("lls", .GlobalEnv)
+  rm("lls", envir = .GlobalEnv)
+}
+
 # now create the active binding
 makeActiveBinding(
   "lls",
   function() { show_files_table(); invisible(NULL) },
   .GlobalEnv
 )
+
+if (exists("llf", envir = .GlobalEnv, inherits = FALSE)) {
+  if (bindingIsLocked("llf", .GlobalEnv)) unlockBinding("llf", .GlobalEnv)
+  rm("llf", envir = .GlobalEnv)
+}
+
+# now create the active binding
+makeActiveBinding(
+  "llf",
+  function() { show_files_table(show = 'files'); invisible(NULL) },
+  .GlobalEnv
+)
+
+if (exists("lld", envir = .GlobalEnv, inherits = FALSE)) {
+  if (bindingIsLocked("llf", .GlobalEnv)) unlockBinding("lld", .GlobalEnv)
+  rm("lld", envir = .GlobalEnv)
+}
+
+# now create the active binding
+makeActiveBinding(
+  "lld",
+  function() { show_files_table(show = 'dirs'); invisible(NULL) },
+  .GlobalEnv
+)
+
 # With brackets, call the plain function:
 # show_files_table()  # prints once
