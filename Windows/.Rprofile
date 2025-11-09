@@ -49,91 +49,80 @@ get_console_width <- function() {
   getOption("width", 80L)
 }
 
-# ------- DF builder -------
-show_files_df <- function(path = getwd()) {
+# ---------------- core DF (filter early, no emoji here) ----------------
+show_files_df <- function(path = getwd(), show = c("both", "files", "dirs")) {
+  show <- match.arg(show)
   files <- list.files(path, all.files = TRUE, full.names = TRUE, no.. = TRUE)
+  
   info  <- file.info(files)
-  ord   <- order(info$mtime)  # oldest -> newest
+  ord   <- order(info$mtime)               # oldest -> newest (ls -ltr style)
   files <- files[ord]; info <- info[ord, , drop = FALSE]
+  
+  is_dir <- info$isdir
+  keep <- switch(show,
+                 both  = rep(TRUE, length(is_dir)),
+                 files = !is_dir,
+                 dirs  =  is_dir)
+  
+  files <- files[keep]
+  info  <- info [keep, , drop = FALSE]
+  is_dir <- is_dir[keep]
+  
   data.frame(
     Name     = basename(files),
     Size_KB  = round(info$size / 1024, 1),
     Modified = info$mtime,
-    Type     = ifelse(info$isdir, "📁 Directory", "📄 File"),
+    IsDir    = is_dir,
     stringsAsFactors = FALSE
   )
 }
 
-# ------- pretty printer: Name LAST; quote only if printed name has spaces -------
+# ------- pretty printer (uses df$IsDir, accepts show) -------
 show_files_table <- function(path = getwd(),
                              term_width = NULL,
                              use_ascii_type = NA,
                              show = c("both", "files", "dirs")) {
-  show <- match.arg(show)
-  df <- show_files_df(path)
+  
+  df <- show_files_df(path, show = match.arg(show))
   tw <- if (is.null(term_width)) get_console_width() else as.integer(term_width)
   
-  # derive robust directory flag
-  is_dir <- if ("IsDir" %in% names(df)) {
-    df$IsDir
-  } else if ("Type" %in% names(df)) {
-    grepl("Directory|\\[DIR\\]", df$Type)
-  } else {
-    rep(FALSE, nrow(df))
-  }
+  safety_pad <- 1L
+  is_linux <- identical(tolower(Sys.info()[["sysname"]]), "linux")
+  if (is.na(use_ascii_type)) use_ascii_type <- is_linux || !isTRUE(l10n_info()[["UTF-8"]])
   
-  # apply filter
-  keep <- switch(show,
-                 both  = rep(TRUE, nrow(df)),
-                 files = !is_dir,
-                 dirs  =  is_dir)
-  df <- df[keep, , drop = FALSE]
-  is_dir <- is_dir[keep]
-  
-  # --- detect whether to fall back to ASCII for Type labels ---
-  if (is.na(use_ascii_type)) {
-    use_ascii_type <- !isTRUE(l10n_info()[["UTF-8"]])
-  }
-  
-  # choose icons or ASCII from is_dir (robust)
+  # Type labels from IsDir (robust; no encoding surprises)
   type_chr <- if (isTRUE(use_ascii_type)) {
-    ifelse(is_dir, "[DIR]", "[FILE]")
+    ifelse(df$IsDir, "[DIR]", "[FILE]")
   } else {
-    ifelse(is_dir, "📁 Directory", "📄 File")
+    ifelse(df$IsDir, "📁 Directory", "📄 File")
   }
   
-  # fixed columns (pre-format)
-  mod_chr  <- format(df$Modified, "%Y-%m-%d %H:%M:%S")  # two-digit seconds
+  mod_chr  <- format(df$Modified, "%Y-%m-%d %H:%M:%S")
   size_chr <- as.character(df$Size_KB)
   idx_chr  <- as.character(seq_len(nrow(df)))
   
-  # widths (Name is last & dynamic)
   w_idx  <- max(nchar(idx_chr), 1L)
   w_size <- max(w_nchar(size_chr), w_nchar("Size_KB"))
   w_mod  <- max(w_nchar(mod_chr),  w_nchar("Modified"))
   w_type <- max(w_nchar(type_chr), w_nchar("Type"))
   
-  # spacing
-  gap1 <- 2                  # after index
-  extra_after_size <- 3      # after Size_KB
-  gap3 <- 1                  # between Modified and Type
-  gap4 <- if (isTRUE(use_ascii_type)) 2 else 1  # larger gap in ASCII mode
+  gap1 <- 2
+  extra_after_size <- 3
+  gap3 <- 1
+  gap4 <- if (is_linux || isTRUE(use_ascii_type)) 2 else 1
   
-  # fixed width BEFORE name starts
   fixed_before_name <- w_idx + gap1 + w_size + extra_after_size + w_mod + gap3 + w_type + gap4
   
-  # Name width used ONLY for truncation (no padding)
   NAME_MIN <- 10
   NAME_MAX <- 60
-  name_nat <- max(w_nchar(df$Name), w_nchar("Name"))
-  max_fit  <- max(5, tw - fixed_before_name)
+  name_nat <- if (nrow(df)) max(w_nchar(df$Name), w_nchar("Name")) else w_nchar("Name")
+  max_fit  <- max(5, tw - safety_pad - fixed_before_name)
   w_name_trunc <- if (name_nat <= max_fit) {
     min(max(name_nat, NAME_MIN), NAME_MAX)
   } else {
     max(NAME_MIN, min(NAME_MAX, max_fit))
   }
   
-  # ----- Header: move "Name" 1 char to the RIGHT -----
   header <- paste0(
     format("",        width = w_idx,  justify = "right"),
     strrep(" ", gap1),
@@ -142,13 +131,12 @@ show_files_table <- function(path = getwd(),
     format("Modified",width = w_mod,  justify = "left"),
     strrep(" ", gap3),
     format("Type",    width = w_type, justify = "left"),
-    strrep(" ", gap4 + 1),  # shift header right by 1
+    strrep(" ", gap4),  # Name header aligned (no extra shift)
     "Name"
   )
   cat(header, "\n")
   cat(strrep("-", min(tw, nchar(header))), "\n")
   
-  # ----- Rows -----
   for (i in seq_len(nrow(df))) {
     idx_fmt  <- format(idx_chr[i],  width = w_idx,  justify = "right")
     size_fmt <- format(size_chr[i], width = w_size, justify = "right")
@@ -156,32 +144,30 @@ show_files_table <- function(path = getwd(),
     type_fmt <- format(type_chr[i], width = w_type, justify = "left")
     
     left_fixed <- paste0(
-      idx_fmt,
-      strrep(" ", gap1),
-      size_fmt,
-      strrep(" ", extra_after_size),
-      mod_fmt,
-      strrep(" ", gap3),
+      idx_fmt, strrep(" ", gap1),
+      size_fmt, strrep(" ", extra_after_size),
+      mod_fmt,  strrep(" ", gap3),
       type_fmt
     )
     
-    # remaining width for Name if unquoted
-    rem_unquoted <- max(0, tw - (w_nchar(left_fixed) + gap4))
+    # remaining width (unquoted), leaving safety pad
+    rem_unquoted <- max(0, tw - safety_pad - (w_nchar(left_fixed) + gap4))
     cand_unquoted <- if (rem_unquoted > 0)
       trunc_name_nopad(df$Name[i], min(rem_unquoted, w_name_trunc))
     else ""
+    
     needs_quote <- grepl("\\s", cand_unquoted)
     
     if (!needs_quote) {
       line <- paste0(left_fixed, strrep(" ", gap4), cand_unquoted)
     } else {
-      # quoted: opening quote one col earlier; reserve 2 for quotes
-      rem_quoted_text <- max(0, tw - (w_nchar(left_fixed) + (gap4 - 1) + 2))
-      inner <- if (rem_quoted_text > 0)
-        trunc_name_nopad(df$Name[i], min(rem_quoted_text, w_name_trunc))
+      pre_gap   <- gap4 - 1
+      rem_inner <- max(0, tw - safety_pad - ((w_nchar(left_fixed) + pre_gap) + 2))
+      inner     <- if (rem_inner > 0)
+        trunc_name_nopad(df$Name[i], min(rem_inner, w_name_trunc))
       else ""
       name_out <- paste0("'", inner, "'")
-      line <- paste0(left_fixed, strrep(" ", gap4 - 1), name_out)
+      line <- paste0(left_fixed, strrep(" ", pre_gap), name_out)
     }
     
     if (w_nchar(line) > tw) line <- substr(line, 1, tw)
