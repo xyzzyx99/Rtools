@@ -5,7 +5,8 @@ setwd <- function(dir) {
   options(prompt = paste0(getwd(), " > "))
   cat("📂 Working directory changed to:", getwd(), "\n")
 }
-ls
+
+#ls
 
 # ------- helpers -------
 w_nchar <- function(x) nchar(x, type = "width")
