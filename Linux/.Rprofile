@@ -29,7 +29,7 @@ setwd <- function(dir) {
   cat("Working directory changed to:", getwd(), "\n")
 }
 
-ls
+#ls
 
 # ------- helpers -------
 w_nchar <- function(x) nchar(x, type = "width")
