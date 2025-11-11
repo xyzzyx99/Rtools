@@ -275,4 +275,12 @@ lld <- make_command(show_files_table, show = 'dirs', print = FALSE)
 llf <- make_command(show_files_table, show = 'files', print = FALSE)
 lls <- make_command(show_files_table, print = FALSE)
 
+library(rlang)
+cwd <- function(path) {
+  path <- enquo(path)
+  dir <- quo_name(path)
+  setwd(dir)
+#  cat("Changed working directory to:", getwd(), "\n")
+}
+
 #lls <- make_command(show_files_table, print = FALSE)
