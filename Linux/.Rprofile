@@ -3,7 +3,7 @@
   user <- Sys.getenv(ifelse(.Platform$OS.type == "windows", "USERNAME", "USER"))
   # remove everything up to and including the first occurrence of <user>
   right <- sub(paste0(".*", user), "", wd, perl = TRUE)
-
+  
   if (identical(right, wd)) {
     # username wasn't found → not inside ~, show absolute path
     wd
@@ -29,7 +29,6 @@ setwd <- function(dir) {
   cat("Working directory changed to:", getwd(), "\n")
 }
 
-#ls
 
 # ------- helpers -------
 w_nchar <- function(x) nchar(x, type = "width")
@@ -91,22 +90,22 @@ show_files_df <- function(path = getwd()) {
 # ---------- DF builder (Linux-safe; filter early; returns IsDir) ----------
 show_files_df <- function(path = getwd(), show = c("both", "files", "dirs")) {
   show <- match.arg(show)
-
+  
   files <- list.files(path, all.files = TRUE, full.names = TRUE, no.. = TRUE)
   info  <- file.info(files)
   ord   <- order(info$mtime)               # oldest -> newest (ls -ltr style)
   files <- files[ord]; info <- info[ord, , drop = FALSE]
-
+  
   is_dir <- info$isdir
   keep <- switch(show,
                  both  = rep(TRUE, length(is_dir)),
                  files = !is_dir,
                  dirs  =  is_dir)
-
+  
   files <- files[keep]
   info  <- info [keep, , drop = FALSE]
   is_dir <- is_dir[keep]
-
+  
   data.frame(
     Name     = basename(files),
     Size_KB  = round(info$size / 1024, 1),
@@ -124,41 +123,41 @@ show_files_table <- function(path = getwd(),
   show <- match.arg(show)
   df <- show_files_df(path, show = show)
   tw <- if (is.null(term_width)) get_console_width() else as.integer(term_width)
-
+  
   # leave a margin so a line never hits the right edge (avoids phantom blank line)
   safety_pad <- 1L
-
+  
   # Linux / encoding heuristics
   is_linux <- identical(tolower(Sys.info()[["sysname"]]), "linux")
   if (is.na(use_ascii_type)) use_ascii_type <- is_linux || !isTRUE(l10n_info()[["UTF-8"]])
-
+  
   # Type labels from IsDir (robust; no leading spaces)
   type_chr <- if (isTRUE(use_ascii_type)) {
     ifelse(df$IsDir, "[DIR]", "[FILE]")
   } else {
     ifelse(df$IsDir, "📁 Directory", "📄 File")
   }
-
+  
   # Fixed columns
   mod_chr  <- format(df$Modified, "%Y-%m-%d %H:%M:%S")  # two-digit seconds
   size_chr <- as.character(df$Size_KB)
   idx_chr  <- as.character(seq_len(nrow(df)))
-
+  
   # Widths (Name is last & dynamic)
   w_idx  <- max(nchar(idx_chr), 1L)
   w_size <- max(w_nchar(size_chr), w_nchar("Size_KB"))
   w_mod  <- max(w_nchar(mod_chr),  w_nchar("Modified"))
   w_type <- max(w_nchar(type_chr), w_nchar("Type"))
-
+  
   # Spacing (use 2 spaces after Type on Linux for clarity)
   gap1 <- 2
   extra_after_size <- 3
   gap3 <- 1
   gap4 <- if (is_linux) 2 else 1
-
+  
   # Fixed width BEFORE unquoted Name starts
   fixed_before_name <- w_idx + gap1 + w_size + extra_after_size + w_mod + gap3 + w_type + gap4
-
+  
   # Name truncation (no padding)
   NAME_MIN <- 10
   NAME_MAX <- 60
@@ -169,7 +168,7 @@ show_files_table <- function(path = getwd(),
   } else {
     max(NAME_MIN, min(NAME_MAX, max_fit))
   }
-
+  
   # Header (align Name with start column; no extra shift)
   header <- paste0(
     format("",        width = w_idx,  justify = "right"),
@@ -184,14 +183,14 @@ show_files_table <- function(path = getwd(),
   )
   cat(header, "\n")
   cat(strrep("-", min(tw, nchar(header))), "\n")
-
+  
   # Rows
   for (i in seq_len(nrow(df))) {
     idx_fmt  <- format(idx_chr[i],  width = w_idx,  justify = "right")
     size_fmt <- format(size_chr[i], width = w_size, justify = "right")
     mod_fmt  <- format(mod_chr[i],  width = w_mod,  justify = "left")
     type_fmt <- format(type_chr[i], width = w_type, justify = "left")
-
+    
     left_fixed <- paste0(
       idx_fmt,
       strrep(" ", gap1),
@@ -201,16 +200,16 @@ show_files_table <- function(path = getwd(),
       strrep(" ", gap3),
       type_fmt
     )
-
+    
     # Remaining width for Name (unquoted), leaving safety_pad
     rem_unquoted <- max(0, tw - safety_pad - (w_nchar(left_fixed) + gap4))
     cand_unquoted <- if (rem_unquoted > 0)
       trunc_name_nopad(df$Name[i], min(rem_unquoted, w_name_trunc))
     else ""
-
+    
     # Quote only if the printed (possibly truncated) name still contains spaces
     needs_quote <- grepl("\\s", cand_unquoted)
-
+    
     if (!needs_quote) {
       line <- paste0(left_fixed, strrep(" ", gap4), cand_unquoted)
     } else {
@@ -223,50 +222,57 @@ show_files_table <- function(path = getwd(),
       name_out <- paste0("'", inner, "'")
       line <- paste0(left_fixed, strrep(" ", pre_gap), name_out)
     }
-
+    
     if (w_nchar(line) > tw) line <- substr(line, 1, tw)  # hard cap
     cat(line, "\n")
   }
-
+  
   invisible(df)
 }
 
 # 3) Active binding: typing `show_files` prints once
+
+oer <- function() options(error = utils::recover)
+oet <- function() options(error = traceback)
+oen <- function() options(error = NULL)
+
+print.command <- function (cmd) {
+  default.args <- attr(cmd, "default.args")
+  if (length(default.args) == 0L) default.args <- list()
+  res <- do.call(cmd, default.args, envir = parent.frame(2))
+  if (attr(cmd, "print_result")) print(res)
+  invisible(NULL)
+}
+
+make_command <- function(x, ..., print = TRUE) {
+  class(x) <- c("command", class(x))
+  attr(x, "default.args") <- list(...)
+  attr(x, "print_result") <- print
+  x
+}
+
+oer <- make_command(oer, print = FALSE)
+oet <- make_command(oet, print = FALSE)
+oen <- make_command(oen, print = FALSE)
+
 if (exists("lls", envir = .GlobalEnv, inherits = FALSE)) {
   if (bindingIsLocked("lls", .GlobalEnv)) unlockBinding("lls", .GlobalEnv)
   rm("lls", envir = .GlobalEnv)
 }
-
-# now create the active binding
-makeActiveBinding(
-  "lls",
-  function() { show_files_table(); invisible(NULL) },
-  .GlobalEnv
-)
 
 if (exists("llf", envir = .GlobalEnv, inherits = FALSE)) {
   if (bindingIsLocked("llf", .GlobalEnv)) unlockBinding("llf", .GlobalEnv)
   rm("llf", envir = .GlobalEnv)
 }
 
-# now create the active binding
-makeActiveBinding(
-  "llf",
-  function() { show_files_table(show = 'files'); invisible(NULL) },
-  .GlobalEnv
-)
-
 if (exists("lld", envir = .GlobalEnv, inherits = FALSE)) {
-  if (bindingIsLocked("llf", .GlobalEnv)) unlockBinding("lld", .GlobalEnv)
+  if (bindingIsLocked("lld", .GlobalEnv)) unlockBinding("lld", .GlobalEnv)
   rm("lld", envir = .GlobalEnv)
 }
 
-# now create the active binding
-makeActiveBinding(
-  "lld",
-  function() { show_files_table(show = 'dirs'); invisible(NULL) },
-  .GlobalEnv
-)
 
-# With brackets, call the plain function:
-# show_files_table()  # prints once
+lld <- make_command(show_files_table, show = 'dirs', print = FALSE)
+llf <- make_command(show_files_table, show = 'files', print = FALSE)
+lls <- make_command(show_files_table, print = FALSE)
+
+#lls <- make_command(show_files_table, print = FALSE)
