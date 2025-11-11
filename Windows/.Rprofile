@@ -216,5 +216,13 @@ makeActiveBinding(
   .GlobalEnv
 )
 
+library(rlang)
+cwd <- function(path) {
+  path <- enquo(path)
+  dir <- quo_name(path)
+  setwd(dir)
+#  cat("Changed working directory to:", getwd(), "\n")
+}
+
 # With brackets, call the plain function:
 # show_files_table()  # prints once
